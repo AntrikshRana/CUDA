@@ -30,7 +30,7 @@ __global__ void matrixMultiplication(int *A, int *B, int *C, int n)
 int main()
 {
     int n = 512;
-    int threadsPerBlock = 128;
+    int threadsPerBlock = 1024;
     int matDim = n * n;
 
     int *A = (int *)malloc(matDim * sizeof(int));
@@ -78,24 +78,56 @@ int main()
     checkCuda(cudaMemcpy(d_B, B, matDim * sizeof(int), cudaMemcpyHostToDevice), "Copy B");
 
     int blocksPerGrid = (matDim + threadsPerBlock - 1) / threadsPerBlock;
-    matrixMultiplication<<<blocksPerGrid, threadsPerBlock>>>(d_A, d_B, d_C, n);
+    
+    cudaEvent_t start, stop;
+    float milliseconds = 0.0f;
 
-    checkCuda(cudaDeviceSynchronize(), "Synchronize");
+    checkCuda(cudaEventCreate(&start), "Create start event");
+    checkCuda(cudaEventCreate(&stop), "Create stop event");
+
+    // Warm-up: run the kernel 3 times;
+    for(int i=0; i<10; i++) {
+        matrixMultiplication<<<blocksPerGrid, threadsPerBlock>>>(d_A, d_B, d_C, n);
+    }
+    
+    checkCuda(cudaGetLastError(), "Warm-up launch");
+    checkCuda(cudaDeviceSynchronize(), "Warm-up execute");
+    
+    int iterations = 10;
+    
+    checkCuda(cudaEventRecord(start), "Record start");
+    
+    for(int i=0; i<iterations; i++) {
+        matrixMultiplication<<<blocksPerGrid, threadsPerBlock>>>(d_A, d_B, d_C, n);
+    }
+
+    checkCuda(cudaGetLastError(), "Benchmark Launch");
+    checkCuda(cudaEventRecord(stop), "Record stop");
+    checkCuda(cudaEventSynchronize(stop), "Wait for benchmark");
+
+    checkCuda(cudaEventElapsedTime(&milliseconds, start, stop), "Calculate elapsed time");
+    std::cout << "-----------------------------------------------------\n";
+    std::cout << "BLOCKS: " << blocksPerGrid << " THREADS: " << threadsPerBlock << "\n";
+    std::cout << "Total elapsed time: " << milliseconds << "ms\n";
+    std::cout << "Average kernel time: " << milliseconds / iterations << "ms\n";
+
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
 
     checkCuda(cudaMemcpy(C, d_C, matDim * sizeof(int), cudaMemcpyDeviceToHost), "Copy C");
 
-    for (int row = 0; row < n; row++)
-    {
-        for (int col = 0; col < n; col++)
-        {
-            if (C[row * n + col] != res[row * n + col])
-            {
-                std::cout << "Unexpected output!\n";
+
+    for(int row=0; row<n; row++) {
+        for(int col=0; col<n; col++) {
+            if(res[row * n + col] != C[row * n + col]) {
+                std::cerr << "Mismatch at index: " << row * n + col
+                          << "Expected value: " << res[row * n + col]
+                          << "Actual: " << C[row * n + col] << "\n";
                 std::exit(EXIT_FAILURE);
             }
         }
     }
-
+    
     std::cout << "Kernel passed!\n";
 
     // Free the allocated memory
