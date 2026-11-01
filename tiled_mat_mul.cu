@@ -104,7 +104,7 @@ int main()
     checkCuda(cudaEventCreate(&start), "Create start event");
     checkCuda(cudaEventCreate(&stop), "Create stop event");
 
-    dim3 threads(TILE_SIZE, TILE_SIZE);
+    dim3 threads(TILE_SIZE / 2, TILE_SIZE);
     dim3 blocks((n + TILE_SIZE - 1) / TILE_SIZE, (n + TILE_SIZE - 1) / TILE_SIZE);
 
     // Warm-up: run the kernel 10 times;
